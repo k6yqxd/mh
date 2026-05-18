@@ -1,44 +1,43 @@
-import { PermissionsBitField } from "discord.js";
-
-const allowedUsers = [
-  "1135749292770992158",
-  "SECOND_ID_HERE"
-];
+import {
+  SlashCommandBuilder,
+  PermissionFlagsBits
+} from "discord.js";
 
 export default {
-  name: "roleall",
-  description: "Give a role to everyone",
+  data: new SlashCommandBuilder()
+    .setName("roleall")
+    .setDescription("Give a role to everyone")
+    .addRoleOption(option =>
+      option
+        .setName("role")
+        .setDescription("Role to give")
+        .setRequired(true)
+    )
+    .setDefaultMemberPermissions(
+      PermissionFlagsBits.Administrator
+    ),
 
-  async execute(message, args) {
+  async execute(interaction) {
 
-    const isAdmin = message.member.permissions.has(
-      PermissionsBitField.Flags.Administrator
-    );
-
-    const isAllowedUser = allowedUsers.includes(message.author.id);
-
-    if (!isAdmin && !isAllowedUser) {
-      return message.reply("You cannot use this command.");
-    }
-
-    const role = message.mentions.roles.first();
-
-    if (!role) {
-      return message.reply("Usage: .roleall @role");
-    }
+    const role = interaction.options.getRole("role");
 
     if (
       role.position >=
-      message.guild.members.me.roles.highest.position
+      interaction.guild.members.me.roles.highest.position
     ) {
-      return message.reply(
-        "That role is higher than my highest role."
-      );
+      return interaction.reply({
+        content: "That role is above my highest role.",
+        ephemeral: true,
+      });
     }
 
-    await message.reply(`Giving ${role} to everyone...`);
+    await interaction.reply({
+      content: `Giving ${role} to everyone...`,
+      ephemeral: true,
+    });
 
-    const members = await message.guild.members.fetch();
+    const members =
+      await interaction.guild.members.fetch();
 
     let success = 0;
     let failed = 0;
@@ -58,8 +57,12 @@ export default {
       }
     }
 
-    message.channel.send(
-      `Done. Added role to ${success} members. Failed: ${failed}`
-    );
+    await interaction.followUp({
+      content:
+        `Done.\n` +
+        `Success: ${success}\n` +
+        `Failed: ${failed}`,
+      ephemeral: true,
+    });
   },
 };
