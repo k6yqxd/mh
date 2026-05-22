@@ -11,10 +11,7 @@ let cooldowns = new Map();
 let commandMessages = new Map();
 
 function loadData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, "{}");
-  }
-
+  if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, "{}");
   return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
 }
 
@@ -24,10 +21,8 @@ function saveData(data) {
 
 function addInvite(guildId, inviterId) {
   const data = loadData();
-
   if (!data[guildId]) data[guildId] = {};
   if (!data[guildId][inviterId]) data[guildId][inviterId] = 0;
-
   data[guildId][inviterId]++;
   saveData(data);
 }
@@ -40,10 +35,20 @@ function getInvites(guildId, userId) {
 function getLeaderboard(guildId) {
   const data = loadData();
   const guildData = data[guildId] || {};
+  return Object.entries(guildData).sort((a, b) => b[1] - a[1]).slice(0, 10);
+}
 
-  return Object.entries(guildData)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
+function snapshotInvites(invites) {
+  const snap = new Map();
+
+  invites.forEach(invite => {
+    snap.set(invite.code, {
+      uses: invite.uses || 0,
+      inviterId: invite.inviter?.id || null
+    });
+  });
+
+  return snap;
 }
 
 function makeLeaderboardText(guild) {
@@ -51,42 +56,41 @@ function makeLeaderboardText(guild) {
 
   let text = "╭・🏆 **INVITE TOPLISTA**\n│\n";
 
-  if (!lb.length) {
-    text += "╰・Még nincs invite.";
-    return text;
-  }
+  if (!lb.length) return text + "╰・Még nincs invite.";
 
   lb.forEach(([userId, invites], index) => {
     text += `├ #${index + 1} <@${userId}> — **${invites}** invite\n`;
   });
 
-  text += "│\n╰・🇭🇺 Hungarian Hood";
-
-  return text;
+  return text + "│\n╰・🇭🇺 Hungarian Hood";
 }
 
 async function updateLeaderboard(client) {
   const channel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID).catch(() => null);
-
-  if (!channel || !channel.guild) {
-    console.log("Leaderboard channel nem található.");
-    return;
-  }
+  if (!channel || !channel.guild) return console.log("Leaderboard channel nem található.");
 
   const messages = await channel.messages.fetch({ limit: 20 }).catch(() => null);
-
   const oldMsg = messages?.find(
-    msg =>
-      msg.author.id === client.user.id &&
-      msg.content.includes("INVITE TOPLISTA")
+    msg => msg.author.id === client.user.id && msg.content.includes("INVITE TOPLISTA")
   );
 
   const text = makeLeaderboardText(channel.guild);
 
-  if (oldMsg) {
-    await oldMsg.edit(text).catch(() => {});
-  } else {
-    await channel.send(text).catch(() => {});
+  if (oldMsg) await oldMsg.edit(text).catch(() => {});
+  else await channel.send(text).catch(() => {});
+}
+
+async function cacheGuildInvites(client) {
+  for (const guild of client.guilds.cache.values()) {
+    const invites = await guild.invites.fetch().catch(error => {
+      console.log(`Nem tudtam inviteokat lekérni itt: ${guild.name}`, error.message);
+      return null;
+    });
+
+    if (invites) {
+      inviteCache.set(guild.id, snapshotInvites(invites));
+      console.log(`Invite cache betöltve: ${guild.name}`);
+    }
   }
 }
 
@@ -104,31 +108,12 @@ async function punishSpam(message, userId) {
     `⚠️ <@${userId}> timeoutot kapott **1 percre** invite spam miatt.`
   ).catch(() => null);
 
-  if (warnMsg) {
-    setTimeout(() => {
-      warnMsg.delete().catch(() => {});
-    }, 5000);
-  }
-}
-
-async function cacheGuildInvites(client) {
-  for (const guild of client.guilds.cache.values()) {
-    const invites = await guild.invites.fetch().catch(error => {
-      console.log(`Nem tudtam inviteokat lekérni itt: ${guild.name}`, error.message);
-      return null;
-    });
-
-    if (invites) {
-      inviteCache.set(guild.id, invites);
-      console.log(`Invite cache betöltve: ${guild.name}`);
-    }
-  }
+  if (warnMsg) setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
 }
 
 export async function setupInviteSystem(client) {
   client.once("ready", async () => {
     console.log("Invite rendszer betöltve.");
-
     await cacheGuildInvites(client);
 
     setInterval(() => {
@@ -138,78 +123,65 @@ export async function setupInviteSystem(client) {
 
   client.on("inviteCreate", async invite => {
     const invites = await invite.guild.invites.fetch().catch(() => null);
-
-    if (invites) {
-      inviteCache.set(invite.guild.id, invites);
-    }
+    if (invites) inviteCache.set(invite.guild.id, snapshotInvites(invites));
   });
 
   client.on("inviteDelete", async invite => {
     const invites = await invite.guild.invites.fetch().catch(() => null);
+    if (invites) inviteCache.set(invite.guild.id, snapshotInvites(invites));
+  });
 
-    if (invites) {
-      inviteCache.set(invite.guild.id, invites);
+  client.on("guildMemberAdd", async member => {
+    console.log(`${member.user.tag} belépett.`);
+
+    const oldInvites = inviteCache.get(member.guild.id);
+
+    if (!oldInvites) {
+      console.log("Nincs régi invite cache.");
+      const invites = await member.guild.invites.fetch().catch(() => null);
+      if (invites) inviteCache.set(member.guild.id, snapshotInvites(invites));
+      return;
     }
-  });
 
-client.on("guildMemberAdd", async member => {
-  console.log(`${member.user.tag} belépett.`);
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
-  const oldInvites = inviteCache.get(member.guild.id);
+    const newInvites = await member.guild.invites.fetch().catch(error => {
+      console.log("Nem tudtam lekérni az új inviteokat:", error.message);
+      return null;
+    });
 
-  if (!oldInvites) {
-    console.log("Nincs régi invite cache.");
-    return;
-  }
+    if (!newInvites) return;
 
-  await new Promise(resolve => setTimeout(resolve, 5000));
+    let usedInvite = null;
 
-  const newInvites = await member.guild.invites.fetch().catch(error => {
-    console.log("Nem tudtam lekérni az új inviteokat:", error.message);
-    return null;
-  });
+    newInvites.forEach(invite => {
+      const oldInvite = oldInvites.get(invite.code);
+      const oldUses = oldInvite?.uses || 0;
+      const newUses = invite.uses || 0;
 
-if (!newInvites) return;
+      if (newUses > oldUses) {
+        usedInvite = invite;
+      }
+    });
 
-const usedInvite = newInvites.find(invite => {
-  const oldInvite = oldInvites.get(invite.code);
+    inviteCache.set(member.guild.id, snapshotInvites(newInvites));
 
-  if (!oldInvite && invite.uses > 0) {
-    return true;
-  }
+    if (!usedInvite || !usedInvite.inviter) {
+      console.log("Nem találtam melyik invite lett használva.");
+      return;
+    }
 
-  return oldInvite && invite.uses > oldInvite.uses;
-});
+    console.log(`${member.user.tag} joined using ${usedInvite.code} by ${usedInvite.inviter.tag}`);
 
-  inviteCache.set(member.guild.id, newInvites);
+    addInvite(member.guild.id, usedInvite.inviter.id);
 
-  if (!usedInvite || !usedInvite.inviter) {
-    console.log("Nem találtam melyik invite lett használva.");
-    return;
-  }
+    const totalInvites = getInvites(member.guild.id, usedInvite.inviter.id);
+    const channel = await member.guild.channels.fetch(JOIN_LOG_CHANNEL_ID).catch(() => null);
 
-  console.log(
-    `${member.user.tag} joined using ${usedInvite.code} by ${usedInvite.inviter.tag}`
-  );
+    if (!channel) return console.log("Welcome channel nem található.");
 
-  addInvite(member.guild.id, usedInvite.inviter.id);
-
-  const totalInvites = getInvites(
-    member.guild.id,
-    usedInvite.inviter.id
-  );
-
-  const channel = await member.guild.channels
-    .fetch(JOIN_LOG_CHANNEL_ID)
-    .catch(() => null);
-
-  if (!channel) {
-    console.log("Welcome channel nem található.");
-    return;
-  }
-
-  await channel.send({
-    content:
+    await channel.send({
+      content:
 `╭・🎉 **ÚJ TAG**
 │
 ├ 👤 Felhasználó: <@${member.id}>
@@ -217,10 +189,10 @@ const usedInvite = newInvites.find(invite => {
 ├ 🏆 Invitejai: **${totalInvites}**
 │
 ╰・🇭🇺 Üdv a Hungarian Hoodban`
-  }).catch(error => {
-    console.log("Nem tudtam welcome üzenetet küldeni:", error.message);
+    }).catch(error => {
+      console.log("Nem tudtam welcome üzenetet küldeni:", error.message);
+    });
   });
-});
 
   client.on("messageCreate", async message => {
     if (message.author.bot || !message.guild) return;
@@ -236,30 +208,18 @@ const usedInvite = newInvites.find(invite => {
     const userId = message.author.id;
     const now = Date.now();
 
-    if (!commandMessages.has(userId)) {
-      commandMessages.set(userId, []);
-    }
-
+    if (!commandMessages.has(userId)) commandMessages.set(userId, []);
     commandMessages.get(userId).push(message);
 
-    const oldCooldown = cooldowns.get(userId) || {
-      lastUsed: 0,
-      spamCount: 0
-    };
+    const oldCooldown = cooldowns.get(userId) || { lastUsed: 0, spamCount: 0 };
 
     if (now - oldCooldown.lastUsed < 10_000) {
       oldCooldown.spamCount++;
-
       cooldowns.set(userId, oldCooldown);
 
       if (oldCooldown.spamCount >= 3) {
         await punishSpam(message, userId);
-
-        cooldowns.set(userId, {
-          lastUsed: now,
-          spamCount: 0
-        });
-
+        cooldowns.set(userId, { lastUsed: now, spamCount: 0 });
         return;
       }
 
@@ -267,19 +227,11 @@ const usedInvite = newInvites.find(invite => {
         "⏳ Várj **10 másodpercet** mielőtt újra használod az invite parancsokat."
       ).catch(() => null);
 
-      if (reply) {
-        setTimeout(() => {
-          reply.delete().catch(() => {});
-        }, 4000);
-      }
-
+      if (reply) setTimeout(() => reply.delete().catch(() => {}), 4000);
       return;
     }
 
-    cooldowns.set(userId, {
-      lastUsed: now,
-      spamCount: 0
-    });
+    cooldowns.set(userId, { lastUsed: now, spamCount: 0 });
 
     if (command === `${PREFIX}invites`) {
       const count = getInvites(message.guild.id, userId);
@@ -296,23 +248,16 @@ const usedInvite = newInvites.find(invite => {
     }
 
     if (command === `${PREFIX}invlb`) {
-      return message.reply({
-        content: makeLeaderboardText(message.guild)
-      });
+      return message.reply({ content: makeLeaderboardText(message.guild) });
     }
 
     if (command === `${PREFIX}adminlb`) {
       if (!message.member.permissions.has("Administrator")) {
-        return message.reply(
-          "❌ Ezt a parancsot csak admin használhatja."
-        );
+        return message.reply("❌ Ezt a parancsot csak admin használhatja.");
       }
 
       await updateLeaderboard(message.client);
-
-      return message.reply(
-        "✅ Invite toplista elküldve / frissítve."
-      );
+      return message.reply("✅ Invite toplista elküldve / frissítve.");
     }
   });
 }
