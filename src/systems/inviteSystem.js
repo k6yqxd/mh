@@ -162,7 +162,7 @@ client.on("guildMemberAdd", async member => {
     return;
   }
 
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  await new Promise(resolve => setTimeout(resolve, 5000));
 
   const newInvites = await member.guild.invites.fetch().catch(error => {
     console.log("Nem tudtam lekérni az új inviteokat:", error.message);
