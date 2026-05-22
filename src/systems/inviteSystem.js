@@ -11,8 +11,11 @@ let cooldowns = new Map();
 let commandMessages = new Map();
 
 function loadData() {
-  if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, "{}");
-  return JSON.parse(fs.readFileSync(DATA_FILE));
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, "{}");
+  }
+
+  return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
 }
 
 function saveData(data) {
@@ -65,7 +68,10 @@ function makeLeaderboardText(guild) {
 async function updateLeaderboard(client) {
   const channel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID).catch(() => null);
 
-  if (!channel || !channel.guild) return;
+  if (!channel || !channel.guild) {
+    console.log("Leaderboard channel nem található.");
+    return;
+  }
 
   const messages = await channel.messages.fetch({ limit: 20 }).catch(() => null);
 
@@ -78,9 +84,9 @@ async function updateLeaderboard(client) {
   const text = makeLeaderboardText(channel.guild);
 
   if (oldMsg) {
-    oldMsg.edit(text).catch(() => {});
+    await oldMsg.edit(text).catch(() => {});
   } else {
-    channel.send(text).catch(() => {});
+    await channel.send(text).catch(() => {});
   }
 }
 
@@ -105,17 +111,25 @@ async function punishSpam(message, userId) {
   }
 }
 
+async function cacheGuildInvites(client) {
+  for (const guild of client.guilds.cache.values()) {
+    const invites = await guild.invites.fetch().catch(error => {
+      console.log(`Nem tudtam inviteokat lekérni itt: ${guild.name}`, error.message);
+      return null;
+    });
+
+    if (invites) {
+      inviteCache.set(guild.id, invites);
+      console.log(`Invite cache betöltve: ${guild.name}`);
+    }
+  }
+}
+
 export async function setupInviteSystem(client) {
   client.once("ready", async () => {
     console.log("Invite rendszer betöltve.");
 
-    for (const guild of client.guilds.cache.values()) {
-      const invites = await guild.invites.fetch().catch(() => null);
-
-      if (invites) {
-        inviteCache.set(guild.id, invites);
-      }
-    }
+    await cacheGuildInvites(client);
 
     setInterval(() => {
       updateLeaderboard(client);
@@ -139,21 +153,42 @@ export async function setupInviteSystem(client) {
   });
 
   client.on("guildMemberAdd", async member => {
-    const oldInvites = inviteCache.get(member.guild.id);
+    console.log(`${member.user.tag} belépett.`);
 
-    const newInvites = await member.guild.invites.fetch().catch(() => null);
+    let oldInvites = inviteCache.get(member.guild.id);
 
-    if (!oldInvites || !newInvites) return;
+    if (!oldInvites) {
+      const fetchedInvites = await member.guild.invites.fetch().catch(() => null);
+
+      if (fetchedInvites) {
+        inviteCache.set(member.guild.id, fetchedInvites);
+      }
+
+      console.log("Nem volt régi invite cache, ezért most betöltöttem.");
+      return;
+    }
+
+    const newInvites = await member.guild.invites.fetch().catch(error => {
+      console.log("Nem tudtam lekérni az új inviteokat:", error.message);
+      return null;
+    });
+
+    if (!newInvites) return;
 
     const usedInvite = newInvites.find(invite => {
       const oldInvite = oldInvites.get(invite.code);
 
-      return oldInvite && invite.uses > oldInvite.uses;
+      if (!oldInvite) return false;
+
+      return invite.uses > oldInvite.uses;
     });
 
     inviteCache.set(member.guild.id, newInvites);
 
-    if (!usedInvite?.inviter) return;
+    if (!usedInvite || !usedInvite.inviter) {
+      console.log("Nem találtam melyik invite lett használva.");
+      return;
+    }
 
     addInvite(member.guild.id, usedInvite.inviter.id);
 
@@ -162,11 +197,15 @@ export async function setupInviteSystem(client) {
       usedInvite.inviter.id
     );
 
-    const channel = member.guild.channels.cache.get(JOIN_LOG_CHANNEL_ID);
+    const channel = await member.guild.channels.fetch(JOIN_LOG_CHANNEL_ID).catch(() => null);
 
-    if (channel) {
-      channel.send({
-        content:
+    if (!channel) {
+      console.log("Welcome channel nem található.");
+      return;
+    }
+
+    await channel.send({
+      content:
 `╭・🎉 **ÚJ TAG**
 │
 ├ 👤 Felhasználó: <@${member.id}>
@@ -174,8 +213,9 @@ export async function setupInviteSystem(client) {
 ├ 🏆 Invitejai: **${totalInvites}**
 │
 ╰・🇭🇺 Üdv a Hungarian Hoodban`
-      }).catch(() => {});
-    }
+    }).catch(error => {
+      console.log("Nem tudtam welcome üzenetet küldeni:", error.message);
+    });
   });
 
   client.on("messageCreate", async message => {
