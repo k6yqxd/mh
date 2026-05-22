@@ -169,15 +169,17 @@ client.on("guildMemberAdd", async member => {
     return null;
   });
 
-  if (!newInvites) return;
+if (!newInvites) return;
 
-  const usedInvite = newInvites.find(invite => {
-    const oldInvite = oldInvites.get(invite.code);
+const usedInvite = newInvites.find(invite => {
+  const oldInvite = oldInvites.get(invite.code);
 
-    if (!oldInvite) return false;
+  if (!oldInvite && invite.uses > 0) {
+    return true;
+  }
 
-    return invite.uses > oldInvite.uses;
-  });
+  return oldInvite && invite.uses > oldInvite.uses;
+});
 
   inviteCache.set(member.guild.id, newInvites);
 
