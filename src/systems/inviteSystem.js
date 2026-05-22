@@ -3,8 +3,8 @@ import fs from "fs";
 const DATA_FILE = "./invites.json";
 
 const PREFIX = ".";
-const LEADERBOARD_CHANNEL_ID = "IDE_A_LEADERBOARD_CHANNEL_ID";
-const JOIN_LOG_CHANNEL_ID = "IDE_A_JOIN_LOG_CHANNEL_ID";
+const LEADERBOARD_CHANNEL_ID = "1507157438065938512";
+const JOIN_LOG_CHANNEL_ID = "1499424302628474993";
 
 let inviteCache = new Map();
 let cooldowns = new Map();
