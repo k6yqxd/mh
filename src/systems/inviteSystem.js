@@ -64,12 +64,15 @@ function makeLeaderboardText(guild) {
 
 async function updateLeaderboard(client) {
   const channel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID).catch(() => null);
+
   if (!channel || !channel.guild) return;
 
-  const messages = await channel.messages.fetch({ limit: 10 }).catch(() => null);
+  const messages = await channel.messages.fetch({ limit: 20 }).catch(() => null);
 
   const oldMsg = messages?.find(
-    msg => msg.author.id === client.user.id && msg.content.includes("INVITE TOPLISTA")
+    msg =>
+      msg.author.id === client.user.id &&
+      msg.content.includes("INVITE TOPLISTA")
   );
 
   const text = makeLeaderboardText(channel.guild);
@@ -96,7 +99,9 @@ async function punishSpam(message, userId) {
   ).catch(() => null);
 
   if (warnMsg) {
-    setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
+    setTimeout(() => {
+      warnMsg.delete().catch(() => {});
+    }, 5000);
   }
 }
 
@@ -111,8 +116,6 @@ export async function setupInviteSystem(client) {
         inviteCache.set(guild.id, invites);
       }
     }
-
-    updateLeaderboard(client);
 
     setInterval(() => {
       updateLeaderboard(client);
@@ -173,8 +176,6 @@ export async function setupInviteSystem(client) {
 ╰・🇭🇺 Üdv a Hungarian Hoodban`
       }).catch(() => {});
     }
-
-    updateLeaderboard(member.client);
   });
 
   client.on("messageCreate", async message => {
@@ -184,7 +185,8 @@ export async function setupInviteSystem(client) {
 
     if (
       command !== `${PREFIX}invites` &&
-      command !== `${PREFIX}invlb`
+      command !== `${PREFIX}invlb` &&
+      command !== `${PREFIX}adminlb`
     ) return;
 
     const userId = message.author.id;
@@ -253,6 +255,20 @@ export async function setupInviteSystem(client) {
       return message.reply({
         content: makeLeaderboardText(message.guild)
       });
+    }
+
+    if (command === `${PREFIX}adminlb`) {
+      if (!message.member.permissions.has("Administrator")) {
+        return message.reply(
+          "❌ Ezt a parancsot csak admin használhatja."
+        );
+      }
+
+      await updateLeaderboard(message.client);
+
+      return message.reply(
+        "✅ Invite toplista elküldve / frissítve."
+      );
     }
   });
 }
