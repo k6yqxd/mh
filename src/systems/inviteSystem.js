@@ -152,60 +152,62 @@ export async function setupInviteSystem(client) {
     }
   });
 
-  client.on("guildMemberAdd", async member => {
-    console.log(`${member.user.tag} belépett.`);
+client.on("guildMemberAdd", async member => {
+  console.log(`${member.user.tag} belépett.`);
 
-    let oldInvites = inviteCache.get(member.guild.id);
+  const oldInvites = inviteCache.get(member.guild.id);
 
-    if (!oldInvites) {
-      const fetchedInvites = await member.guild.invites.fetch().catch(() => null);
+  if (!oldInvites) {
+    console.log("Nincs régi invite cache.");
+    return;
+  }
 
-      if (fetchedInvites) {
-        inviteCache.set(member.guild.id, fetchedInvites);
-      }
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
-      console.log("Nem volt régi invite cache, ezért most betöltöttem.");
-      return;
-    }
+  const newInvites = await member.guild.invites.fetch().catch(error => {
+    console.log("Nem tudtam lekérni az új inviteokat:", error.message);
+    return null;
+  });
 
-    const newInvites = await member.guild.invites.fetch().catch(error => {
-      console.log("Nem tudtam lekérni az új inviteokat:", error.message);
-      return null;
-    });
+  if (!newInvites) return;
 
-    if (!newInvites) return;
+  const usedInvite = newInvites.find(invite => {
+    const oldInvite = oldInvites.get(invite.code);
 
-    const usedInvite = newInvites.find(invite => {
-      const oldInvite = oldInvites.get(invite.code);
+    if (!oldInvite) return false;
 
-      if (!oldInvite) return false;
+    return invite.uses > oldInvite.uses;
+  });
 
-      return invite.uses > oldInvite.uses;
-    });
+  inviteCache.set(member.guild.id, newInvites);
 
-    inviteCache.set(member.guild.id, newInvites);
+  if (!usedInvite || !usedInvite.inviter) {
+    console.log("Nem találtam melyik invite lett használva.");
+    return;
+  }
 
-    if (!usedInvite || !usedInvite.inviter) {
-      console.log("Nem találtam melyik invite lett használva.");
-      return;
-    }
+  console.log(
+    `${member.user.tag} joined using ${usedInvite.code} by ${usedInvite.inviter.tag}`
+  );
 
-    addInvite(member.guild.id, usedInvite.inviter.id);
+  addInvite(member.guild.id, usedInvite.inviter.id);
 
-    const totalInvites = getInvites(
-      member.guild.id,
-      usedInvite.inviter.id
-    );
+  const totalInvites = getInvites(
+    member.guild.id,
+    usedInvite.inviter.id
+  );
 
-    const channel = await member.guild.channels.fetch(JOIN_LOG_CHANNEL_ID).catch(() => null);
+  const channel = await member.guild.channels
+    .fetch(JOIN_LOG_CHANNEL_ID)
+    .catch(() => null);
 
-    if (!channel) {
-      console.log("Welcome channel nem található.");
-      return;
-    }
+  if (!channel) {
+    console.log("Welcome channel nem található.");
+    return;
+  }
 
-    await channel.send({
-      content:
+  await channel.send({
+    content:
 `╭・🎉 **ÚJ TAG**
 │
 ├ 👤 Felhasználó: <@${member.id}>
@@ -213,10 +215,10 @@ export async function setupInviteSystem(client) {
 ├ 🏆 Invitejai: **${totalInvites}**
 │
 ╰・🇭🇺 Üdv a Hungarian Hoodban`
-    }).catch(error => {
-      console.log("Nem tudtam welcome üzenetet küldeni:", error.message);
-    });
+  }).catch(error => {
+    console.log("Nem tudtam welcome üzenetet küldeni:", error.message);
   });
+});
 
   client.on("messageCreate", async message => {
     if (message.author.bot || !message.guild) return;
