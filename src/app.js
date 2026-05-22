@@ -12,6 +12,7 @@ import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { checkBirthdays } from './services/birthdayService.js';
 import { checkGiveaways } from './services/giveawayService.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/commandLoader.js';
+import { setupInviteSystem } from './systems/inviteSystem.js';
 
 class TitanBot extends Client {
   constructor() {
@@ -20,7 +21,7 @@ class TitanBot extends Client {
         
         GatewayIntentBits.Guilds,                        
         GatewayIntentBits.GuildMembers,                 
-        
+        GatewayIntentBits.GuildInvites,
         
         GatewayIntentBits.GuildMessages,                
         GatewayIntentBits.GuildMessageReactions,        
@@ -357,6 +358,7 @@ class TitanBot extends Client {
 
 try {
   const bot = new TitanBot();
+  setupInviteSystem(bot);
   
   const setupShutdown = () => {
     process.on('SIGTERM', () => bot.shutdown('SIGTERM'));
